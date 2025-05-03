@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tennis Line Judge</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: #222;
+      color: white;
+      margin: 0;
+      padding: 0;
+    }
+    h1 {
+      font-size: 1.5em;
+      padding: 10px;
+    }
+    video, canvas {
+      width: 100%;
+      height: auto;
+      max-width: 640px;
+      border: 2px solid white;
+      margin-top: 10px;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 1.2em;
+      padding: 0 10px;
+    }
+    button {
+      margin: 10px 5px;
+      padding: 10px 20px;
+      font-size: 1em;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      background-color: #444;
+      color: white;
+    }
+    button:hover {
+      background-color: #666;
+    }
+    #controls {
+      margin-top: 20px;
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tennis Line Judge</h1>
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+  <div id="status">Esperando pelotas...</div>
+  <div id="controls">
+    <button id="startBtn">Iniciar</button>
+    <button id="stopBtn">Detener</button>
+    <button id="resetBtn">Reiniciar</button>
+  </div>
+
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const status = document.getElementById("status");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const court = { left: 100, top: 100, right: 540, bottom: 380 };
+
+    let running = false;
+    let lastBall = null;
+    let lastTime = null;
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(stream => {
+      video.srcObject = stream;
+      video.addEventListener("loadedmetadata", () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      });
+    });
+
+    function isInCourt(x, y) {
+      return x > court.left && x < court.right && y > court.top && y < court.bottom;
+    }
+
+    function detectBall(frameData) {
+      let maxR = 0;
+      let ballPos = null;
+      for (let i = 0; i < frameData.data.length; i += 4) {
+        const r = frameData.data[i];
+        const g = frameData.data[i + 1];
+        const b = frameData.data[i + 2];
+        if (r > 200 && g > 200 && b < 100) {
+          const x = (i / 4) % canvas.width;
+          const y = Math.floor((i / 4) / canvas.width);
+          if (!ballPos || r > maxR) {
+            ballPos = { x, y };
+            maxR = r;
+          }
+        }
+      }
+      return ballPos;
+    }
+
+    function drawCourt() {
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(court.left, court.top, court.right - court.left, court.bottom - court.top);
+    }
+
+    function loop(timestamp) {
+      if (!running) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      drawCourt();
+      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const ball = detectBall(frame);
+      let message = "Esperando pelotas...";
+
+      if (ball) {
+        const inside = isInCourt(ball.x, ball.y);
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, 10, 0, 2 * Math.PI);
+        ctx.strokeStyle = inside ? "lime" : "red";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        message = inside ? "¡Dentro!" : "¡Fuera!";
+
+        if (lastBall && lastTime) {
+          const dx = ball.x - lastBall.x;
+          const dy = ball.y - lastBall.y;
+          const dt = (timestamp - lastTime) / 1000;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          const pixelsPerMeter = 20; // Ajustable según escala real
+          const speedMps = (distance / pixelsPerMeter) / dt;
+          const speedKmh = speedMps * 3.6;
+
+          message += ` | Velocidad: ${speedKmh.toFixed(1)} km/h`;
+        }
+
+        lastBall = ball;
+        lastTime = timestamp;
+      }
+
+      status.textContent = message;
+      requestAnimationFrame(loop);
+    }
+
+    startBtn.addEventListener("click", () => {
+      if (!running) {
+        running = true;
+        requestAnimationFrame(loop);
+      }
+    });
+
+    stopBtn.addEventListener("click", () => {
+      running = false;
+      status.textContent = "Detenido.";
+    });
+
+    resetBtn.addEventListener("click", () => {
+      lastBall = null;
+      lastTime = null;
+      status.textContent = "Esperando pelotas...";
+    });
+  </script>
+</body>
+</html>
